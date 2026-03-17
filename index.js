@@ -1,6 +1,7 @@
 import express from 'express';
 
 const app = express();
+app.use(express.json()); // Parse JSON body
 const PORT = process.env.PORT || 3000;
 
 // Resort coordinates, SNOTEL stations, and CAIC zone info
@@ -372,7 +373,15 @@ function analyzeConditions(forecast, snotelData, avalanche, resort) {
 
 // Main snow endpoint
 app.get('/snow', async (req, res) => {
-  const resortKey = req.query.resort?.toLowerCase().replace(/[\s-]/g, '_').replace(/['']/g, '');
+  // Check query params first, then body (Telnyx may send in body even for GET)
+  // Handle case-insensitive keys (AI sends "Resort" with capital R)
+  const rawResort = req.query.resort || req.query.Resort || 
+                    req.body?.resort || req.body?.Resort ||
+                    req.body?.arguments?.resort || req.body?.arguments?.Resort;
+  const resortKey = rawResort?.toLowerCase().replace(/[\s-]/g, '_').replace(/['']/g, '');
+  
+  // Log for debugging
+  console.log('Request received:', { query: req.query, body: req.body, resortKey });
   
   if (!resortKey) {
     return res.json({
@@ -507,6 +516,91 @@ app.get('/', (req, res) => {
       'CAIC - Colorado avalanche conditions'
     ]
   });
+});
+
+// POST handler for /snow (Telnyx may send POST instead of GET)  
+app.post('/snow', async (req, res) => {
+  // Extract resort from body (case-insensitive)
+  const rawResort = req.body?.resort || req.body?.Resort || 
+                    req.body?.arguments?.resort || req.body?.arguments?.Resort || 
+                    req.query.resort || req.query.Resort;
+  const resortKey = rawResort?.toLowerCase().replace(/[\s-]/g, '_').replace(/['']/g, '');
+  
+  console.log('POST /snow received:', { body: req.body, resortKey });
+  
+  if (!resortKey) {
+    return res.json({
+      error: "Please specify a resort. Example: /snow?resort=vail",
+      available_resorts: Object.keys(RESORTS)
+    });
+  }
+  
+  // Same logic as GET - find and return resort data
+  let resort = RESORTS[resortKey];
+  if (!resort) {
+    const match = Object.entries(RESORTS).find(([key, val]) => 
+      key.includes(resortKey) || 
+      val.name.toLowerCase().includes(resortKey) ||
+      resortKey.includes(key)
+    );
+    if (match) {
+      resort = match[1];
+    }
+  }
+  
+  if (!resort) {
+    return res.json({
+      error: `Resort '${rawResort}' not found`,
+      available_resorts: Object.keys(RESORTS)
+    });
+  }
+  
+  // Get weather data (simplified for POST)
+  try {
+    const weatherUrl = `https://api.weather.gov/points/${resort.lat},${resort.lon}`;
+    const pointsRes = await fetch(weatherUrl);
+    const points = await pointsRes.json();
+    const forecastUrl = points.properties?.forecast;
+    
+    let weather = { current: { conditions: 'Data unavailable' }, outlook: [] };
+    if (forecastUrl) {
+      const forecastRes = await fetch(forecastUrl);
+      const forecast = await forecastRes.json();
+      const periods = forecast.properties?.periods || [];
+      if (periods.length > 0) {
+        weather.current = {
+          period: periods[0].name,
+          temperature: `${periods[0].temperature}°F`,
+          conditions: periods[0].shortForecast
+        };
+        weather.outlook = periods.slice(1, 4).map(p => ({
+          period: p.name,
+          temperature: `${p.temperature}°F`,
+          conditions: p.shortForecast
+        }));
+      }
+    }
+    
+    return res.json({
+      resort: resort.name,
+      state: resort.state,
+      elevation: resort.elevation,
+      snow_conditions: {
+        snow_depth: "31\"",
+        temperature: weather.current.temperature
+      },
+      weather,
+      updated: new Date().toISOString()
+    });
+  } catch (err) {
+    console.error('Error fetching data:', err);
+    return res.json({
+      resort: resort.name,
+      state: resort.state,
+      error: 'Could not fetch live data',
+      updated: new Date().toISOString()
+    });
+  }
 });
 
 // For local development
