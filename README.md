@@ -1,111 +1,160 @@
 # Snow Report Hotline 🎿❄️
 
-A voice-powered ski conditions hotline for Colorado and Utah resorts, powered by Telnyx AI Assistants.
+A voice-powered ski conditions hotline for Colorado and Utah resorts, powered by Telnyx AI Assistants with **LIVE real-time data**.
 
 ## 📞 Call the Hotline
 
 **+1 (970) 617-1169**
 
-Call to get snow conditions, forecasts, and recommendations for:
+Call to get **live snow conditions** for:
 - **Colorado:** Vail, Beaver Creek, Breckenridge, Keystone, A-Basin, Copper Mountain, Winter Park, Steamboat, Aspen/Snowmass, Telluride
 - **Utah:** Deer Valley, Park City
 
-## Architecture
+## 🔄 Real-Time Data Sources
 
-### Current MVP (v1)
-- **Telnyx AI Assistant** with built-in knowledge about ski conditions
-- Natural conversation handling via Kimi-K2.5 model
-- Voice interaction via Inworld.Max.Johanna TTS
+The API aggregates live data from multiple sources:
 
-### Future Enhancement (v2) - Backend API Ready
-The `index.js` file contains a Node.js API that pulls real-time data from NOAA:
+1. **NOAA/NWS** - Weather forecasts by GPS coordinates
+2. **SNOTEL/NRCS** - Snow depth, snow water equivalent, temperature (updated daily)
+3. **CAIC (Colorado Avalanche Information Center)** - Avalanche danger ratings and forecasts
+
+## API Endpoints
 
 ```bash
-# Test locally
-npm install
-npm start
+# Get conditions for a resort
+GET /snow?resort=vail
 
-# Endpoints
-GET /snow?resort=vail     # Get conditions for a resort
-GET /resorts              # List all supported resorts
-GET /health               # Health check
+# List all supported resorts
+GET /resorts
+
+# Health check
+GET /health
 ```
 
-To connect to the assistant with function calling:
-1. Deploy the API (Render, Vercel, Railway)
-2. Add a function tool to the assistant that calls the `/snow` endpoint
-3. The assistant can then provide real-time weather data
+### Example Response
+
+```json
+{
+  "resort": "Vail",
+  "state": "CO",
+  "elevation": "11,570 ft",
+  "terrain": "5,317 acres",
+  "snow_conditions": {
+    "source": "Vail Mountain SNOTEL",
+    "snow_depth": "31\"",
+    "new_snow_24h": "3\"",
+    "new_snow_48h": "8\"",
+    "snow_water_equivalent": "9.4\"",
+    "temperature": "29°F"
+  },
+  "weather": {
+    "current": {
+      "period": "Today",
+      "temperature": "38°F",
+      "conditions": "Partly Cloudy",
+      "wind": "10 mph W",
+      "precipitation_chance": "20%"
+    }
+  },
+  "avalanche": {
+    "zone": "Vail & Summit County",
+    "danger_alpine": "Considerable (3)",
+    "danger_treeline": "Moderate (2)",
+    "danger_below_treeline": "Low (1)",
+    "problems": ["persistentSlab", "windSlab"]
+  },
+  "analysis": {
+    "summary": "3\" of new snow! Current depth: 31\"...",
+    "recommendation": "Fresh powder - great conditions!",
+    "powder_rating": "3/5"
+  }
+}
+```
+
+## Deployment
+
+### Render (Recommended)
+
+1. Connect GitHub repo to Render
+2. Create new Web Service
+3. Select this repo
+4. Use `render.yaml` for config
+
+### Vercel
+
+```bash
+vercel --prod
+```
+
+### Local Development
+
+```bash
+npm install
+npm run dev
+# API at http://localhost:3000
+```
+
+### Expose Local for Testing
+
+```bash
+cloudflared tunnel --url http://localhost:3000
+# Or
+npx localtunnel --port 3000
+```
 
 ## Telnyx Configuration
 
 - **Assistant ID:** `assistant-00aeeaab-6f8c-4eb8-b068-8eabc1a07e5a`
 - **Phone Number:** `+19706171169`
 - **Model:** `moonshotai/Kimi-K2.5`
-- **Voice:** `Inworld.Max.Johanna`
+- **Voice:** `Rime.ArcanaV3.walnut`
+- **Function Calling:** HTTP tool calling `/snow` endpoint
 
-### Update the Assistant
+### Update Assistant Function URL
 
-```bash
-# List assistants
-telnyx assistant list
+When deploying to a new URL, update the assistant:
 
-# Get details
-telnyx assistant get assistant-00aeeaab-6f8c-4eb8-b068-8eabc1a07e5a
-```
-
-### Add Function Calling (Future)
-
-Via API:
 ```bash
 curl -X PATCH "https://api.telnyx.com/v2/ai/assistants/assistant-00aeeaab-6f8c-4eb8-b068-8eabc1a07e5a" \
   -H "Authorization: Bearer $TELNYX_API_KEY" \
   -H "Content-Type: application/json" \
   -d '{
     "tools": [{
-      "type": "function",
-      "function": {
+      "type": "http",
+      "http": {
         "name": "get_snow_conditions",
-        "description": "Get current snow conditions for a ski resort",
-        "parameters": {
-          "type": "object",
-          "properties": {
-            "resort": {
-              "type": "string",
-              "description": "Resort name (e.g., vail, breckenridge)"
-            }
-          },
-          "required": ["resort"]
-        },
-        "url": "https://your-api-url.com/snow"
+        "description": "Get live snow conditions for a ski resort",
+        "method": "GET",
+        "url": "YOUR_DEPLOYED_URL/snow",
+        "query_params": [{
+          "name": "resort",
+          "type": "string",
+          "description": "Resort name",
+          "required": true
+        }],
+        "timeout_ms": 10000
       }
     }]
   }'
 ```
 
-## Data Sources
+## SNOTEL Station Mapping
 
-The backend API uses:
-- **NOAA/NWS API** (free, no key required) - Weather forecasts by GPS coordinates
-- Resort coordinates mapped for all supported mountains
-
-## Files
-
-- `index.js` - Express API server for snow conditions
-- `package.json` - Node.js dependencies
-- `render.yaml` - Render deployment config
-- `vercel.json` - Vercel deployment config
+| Resort | SNOTEL Station | ID |
+|--------|---------------|-----|
+| Vail/Beaver Creek | Vail Mountain | 842 |
+| Breckenridge/Keystone | Hoosier Pass | 531 |
+| A-Basin | Grizzly Peak | 485 |
+| Copper Mountain | Copper Mountain | 415 |
+| Winter Park | Berthoud Summit | 335 |
+| Steamboat | Rabbit Ears | 709 |
+| Aspen | Independence Pass | 542 |
+| Telluride | Lizard Head Pass | 586 |
+| Park City/Deer Valley | Thaynes Canyon | 766 |
 
 ## GitHub
 
 Repository: https://github.com/harrisonf-telnyx/snow-phone-api
-
-## Next Steps
-
-1. Deploy the API to a public URL
-2. Add function calling to the assistant
-3. Enhance with more data sources (OpenSnow, SNOTEL)
-4. Add avalanche conditions from CAIC
-5. Consider adding SMS support for text-based reports
 
 ---
 
