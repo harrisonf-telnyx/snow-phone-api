@@ -193,6 +193,12 @@ app.get('/', (req, res) => {
   });
 });
 
-app.listen(PORT, () => {
-  console.log(`Snow Phone API running on port ${PORT}`);
-});
+// For local development
+if (process.env.NODE_ENV !== 'production') {
+  app.listen(PORT, () => {
+    console.log(`Snow Phone API running on port ${PORT}`);
+  });
+}
+
+// Export for Vercel
+export default app;
